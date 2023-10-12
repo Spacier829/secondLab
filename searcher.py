@@ -1,7 +1,4 @@
 import sqlite3
-import re
-import bs4
-import requests
 
 
 class Searcher:
@@ -32,7 +29,7 @@ class Searcher:
             sqlSelect = "SELECT rowid FROM wordList WHERE word = \"{}\" LIMIT 1;".format(
                 word)
             wordId = self.connection.execute(sqlSelect).fetchone()[0]
-            if wordId != None:
+            if wordId is not None:
                 # Если такое слово имеется, то его id помещается в список
                 wordsIdList.append(wordId)
                 print("Слово:", word, "id:", wordId)
@@ -78,7 +75,6 @@ class Searcher:
                 if len(queryWordsList) >= 2:
                     sqlPart_ColumnName.append(
                         "  , w{}.location w{}_loc --положение следующего искомго слова".format(wordIndex, wordIndex))
-
                 # Добавление INNER JOIN
                 sqlPart_Join.append(
                     "INNER JOIN wordLocation w{} on w0.fk_urlId=w{}.fk_urlId".format(wordIndex, wordIndex, wordIndex))
@@ -121,6 +117,7 @@ class Searcher:
         # Малая величина для деления на 0
         vSmall = 0.00001
 
+        # Вычисления Max и Min значений из рангов
         minScore = min(scores.values())
         maxScore = max(scores.values())
 
@@ -131,11 +128,10 @@ class Searcher:
                 # Ранг нормализованный = мин. / (тек.значение  или малую величину)
                 resultDict[key] = float(minScore) / max(vSmall, val)
             else:
-                # Режим БОЛЬШЕ  вх. значение => ЛУЧШЕ вычислить макс и разделить каждое на макс
+                # Режим БОЛЬШЕ вх. значение => ЛУЧШЕ вычислить макс и разделить каждое на макс
                 # Вычисление ранга как доли от макс.
                 # Ранг нормализованный = тек. значения / макс.
                 resultDict[key] = float(val) / maxScore
-
         return resultDict
 
     # 4. Метод ранжирования - расположение в документе
@@ -165,7 +161,7 @@ class Searcher:
         # Список для общего ранга
         m1Scores = dict([(row[0], 0) for row in rowsLoc])
 
-        #
+        # Вычисление значений рангов для разных способов
         weights = [(1.0, locationScores),
                    (1.0, pageRankScores)]
 
@@ -181,16 +177,17 @@ class Searcher:
 
         # Сортировка из словаря по убыванию
         rankedScoresList.sort(reverse=1)
-
+        # Вывод таблицы рангов с url
         print("urlId, pr_score, loc_score, sum_score, Url")
         for (score, urlId) in rankedScoresList[0:20]:
             print("{:>3} {:>10.2f} {:>10.2f} {:>10.2f}   {}".format(
                 urlId, pageRankScores[urlId], locationScores[urlId], score, self.getUrlName(urlId)))
-        # self.getMarkedHtml(33)
-        self.createMarkedHtmlFile(
-            'html.html', self.getUrlName(33), queryString)
-    # 7. Рассчет pageRank
+        # Формирование html-файлов для лучших результатов
+        for (score, urlId) in rankedScoresList[0:3]:
+            self.createMarkedHtmlFile(
+                str(urlId)+"-url___"+str(round(score, 2))+"-pr.html", urlId, queryString)
 
+    # 7. Рассчет pageRank
     def calculatePageRank(self, iterations=5):
         # Подготовка БД
         # Удаление текущего содержимого таблцы pageRank
@@ -241,7 +238,6 @@ class Searcher:
                     # Поиск ранга ссылающейся страницы
                     linkingpr = self.connection.execute(
                         "SELECT score FROM pageRank WHERE url='{}'".format(linker)).fetchone()[0]
-
                     # Поиск общего числа ссылок на ссылающейся странице
                     linkingCount = self.connection.execute(
                         "SELECT COUNT(*) FROM linkBetweenUrl where fk_fromUrlId='{}'".format(linker)).fetchone()[0]
@@ -260,24 +256,18 @@ class Searcher:
         return normalizedScores
 
     # 9. Создание html-файла
-    def createMarkedHtmlFile(self, markedHtmlFileName, testText, testQuery):
-        # Преобразование текста к нижнему регистру
-        testText = testText.lower()
+    def createMarkedHtmlFile(self, markedHtmlFileName, urlId, testQuery):
+        # Разделение запроса на отдельные слова и приведение к нижнему регистру
         testQueryWordsList = testQuery.split(" ")
         for i in range(0, len(testQueryWordsList)):
             testQueryWordsList[i] = testQueryWordsList[i].lower()
 
-        # Получение текста страницы с знаками переноса строк и препинания.
-        # Использование регулярок
-        # ------------------ Сделать функцию для вытаскивания слов из БД
-        # wordList = re.compile("[\\w]+|[\\n.,!?:—]").findall(testText)
-        wordList = self.testirovanie(33)
-        # --------------------------------------------------------------
+        # Получение текста страницы.
+        wordList = self.getWordListFromUrl(urlId)
 
         # Получение html-кода с маркировкой искомых слов
         htmlCode = self.getMarkedHtml(wordList, testQueryWordsList)
-        # htmlCode = self.testirovanie(wordList, testQueryWordsList)
-        print(htmlCode)
+        # print(htmlCode)
 
         # Сохранение html-кода в файл с указанным именем
         file = open(markedHtmlFileName, 'w', encoding="utf-8")
@@ -287,61 +277,55 @@ class Searcher:
     # 10. Генерация html-кода с маркировкой указанных слов цветом
     def getMarkedHtml(self, wordList, queryList):
         # Переменная-заготовка для html-кода
-        resutlHtml = ""
-        resutlHtml += "<!DOCTYPE HTML>"
+        resultHtml = ""
+        resultHtml += '<!DOCTYPE html>\n<html lang="en">\n'
+        resultHtml += "<body>"
+        # Для каждого слова из wordList
         for word in wordList:
+            # Проверка на совпадение с запросом
             if word in queryList:
                 wordidx = queryList.index(word)
+                # Если слово первое в запросе - красный
                 if wordidx == 0:
                     color = "red"
+                # Если слово второе в запросе - синий
                 if wordidx == 1:
                     color = "cyan"
-                resutlHtml += "<span style=\"background-color:"+color+";\">"
-                resutlHtml += ''.join(word)
-                resutlHtml += "</span>"
-            elif word == '\n':
-                resutlHtml += "<br>"
+                # html-разметка для выделения
+                resultHtml += '<span style="background-color:{}";>{}</span>'.format(
+                    color, word)
             else:
-                resutlHtml += ''.join(word)
-            resutlHtml += " "
-        return resutlHtml
+                resultHtml += ''.join(word)
+            resultHtml += " "
+        resultHtml += "\n</body>"
+        return resultHtml
 
-    def testirovanie(self, url):
-        # Выборка url из БД
-        sqlSelect = "SELECT COUNT(*) FROM wordLocation where fk_urlId={}".format(url)
-        wordCountUrl = self.connection.execute(sqlSelect).fetchone()[0]
-        print(wordCountUrl)
+    # 11. Получение списка слов с URL страницы
+    def getWordListFromUrl(self, urlId):
+        # Определение кол-ва слов на странице по url-адресу
+        sqlSelect = "SELECT COUNT(*) FROM wordLocation where fk_urlId={}".format(urlId)
+        wordsCountUrl = self.connection.execute(sqlSelect).fetchone()[0]
+
+        # Определение 1-го rowId для конкретного URL
         sqlSelect = "SELECT rowId FROM wordLocation where fk_urlId={}".format(
-            url)
+            urlId)
         rowId = self.connection.execute(sqlSelect).fetchone()[0]
-        print(rowId)
-        print(wordCountUrl+rowId-1)
+        # Список для хранения слов с URL
         wordList = list()
-        for i in range(wordCountUrl):
+        for i in range(wordsCountUrl):
+            # Получение wordId из таблицы локаций для нахождения самого слова в wordList
             sqlSelect = "SELECT fk_wordId from wordLocation where rowId={}".format(
                 rowId+i)
             wordId = self.connection.execute(sqlSelect).fetchone()[0]
+            # Получение слова из wordList
             sqlSelect = "SELECT word from wordList where rowId={}".format(
                 wordId)
-            # добавить проверку на совпадение слова с запросом
             word = self.connection.execute(sqlSelect).fetchone()[0]
+            # Добавление слова в список
             wordList.append(word)
-        print(url)
         return wordList
-
-    # ==========================
-
-    # def getHtmlCode(self, url):
-    #     htmlDoc = requests.get(url).text
-    #     soup = bs4.BeautifulSoup(htmlDoc, "html.parser")
-    #     soup.prettify()
-    #     listUnwantedItems = ['script', 'style', 'data-item']
-    #     for script in soup.find_all(listUnwantedItems):
-    #         script.decompose()
-    #     soupText = soup.find('body').get_text()
-    #     return soupText
-
 # ------------------------------------------
+
 # Основная функция
 
 
