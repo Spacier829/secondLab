@@ -186,7 +186,7 @@ class Searcher:
         for (score, urlId) in rankedScoresList[0:20]:
             print("{:>3} {:>10.2f} {:>10.2f} {:>10.2f}   {}".format(
                 urlId, pageRankScores[urlId], locationScores[urlId], score, self.getUrlName(urlId)))
-        self.getHtmlCode(self.getUrlName(33))
+        # self.getMarkedHtml(33)
         self.createMarkedHtmlFile(
             'html.html', self.getUrlName(33), queryString)
     # 7. Рассчет pageRank
@@ -269,10 +269,14 @@ class Searcher:
 
         # Получение текста страницы с знаками переноса строк и препинания.
         # Использование регулярок
-        wordList = re.compile("[\\w]+|[\\n.,!?:—]").findall(testText)
+        # ------------------ Сделать функцию для вытаскивания слов из БД
+        # wordList = re.compile("[\\w]+|[\\n.,!?:—]").findall(testText)
+        wordList = self.testirovanie(33)
+        # --------------------------------------------------------------
 
         # Получение html-кода с маркировкой искомых слов
         htmlCode = self.getMarkedHtml(wordList, testQueryWordsList)
+        # htmlCode = self.testirovanie(wordList, testQueryWordsList)
         print(htmlCode)
 
         # Сохранение html-кода в файл с указанным именем
@@ -302,17 +306,40 @@ class Searcher:
             resutlHtml += " "
         return resutlHtml
 
+    def testirovanie(self, url):
+        # Выборка url из БД
+        sqlSelect = "SELECT COUNT(*) FROM wordLocation where fk_urlId={}".format(url)
+        wordCountUrl = self.connection.execute(sqlSelect).fetchone()[0]
+        print(wordCountUrl)
+        sqlSelect = "SELECT rowId FROM wordLocation where fk_urlId={}".format(
+            url)
+        rowId = self.connection.execute(sqlSelect).fetchone()[0]
+        print(rowId)
+        print(wordCountUrl+rowId-1)
+        wordList = list()
+        for i in range(wordCountUrl):
+            sqlSelect = "SELECT fk_wordId from wordLocation where rowId={}".format(
+                rowId+i)
+            wordId = self.connection.execute(sqlSelect).fetchone()[0]
+            sqlSelect = "SELECT word from wordList where rowId={}".format(
+                wordId)
+            # добавить проверку на совпадение слова с запросом
+            word = self.connection.execute(sqlSelect).fetchone()[0]
+            wordList.append(word)
+        print(url)
+        return wordList
+
     # ==========================
 
-    def getHtmlCode(self, url):
-        htmlDoc = requests.get(url).text
-        soup = bs4.BeautifulSoup(htmlDoc, "html.parser")
-        soup.prettify()
-        listUnwantedItems = ['script', 'style', 'data-item']
-        for script in soup.find_all(listUnwantedItems):
-            script.decompose()
-        soupText = soup.find('body').get_text()
-        return soupText
+    # def getHtmlCode(self, url):
+    #     htmlDoc = requests.get(url).text
+    #     soup = bs4.BeautifulSoup(htmlDoc, "html.parser")
+    #     soup.prettify()
+    #     listUnwantedItems = ['script', 'style', 'data-item']
+    #     for script in soup.find_all(listUnwantedItems):
+    #         script.decompose()
+    #     soupText = soup.find('body').get_text()
+    #     return soupText
 
 # ------------------------------------------
 # Основная функция
